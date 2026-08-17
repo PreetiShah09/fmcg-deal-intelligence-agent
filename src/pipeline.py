@@ -23,7 +23,11 @@ def run_pipeline(
         r=relevance(a["title"],a["summary"]); c=score_source(a["source"])
         a.update(relevance_score=r,credibility_score=c,final_score=round(.65*r+.35*c,3),deal_type=deal_type(a["title"]+" "+a["summary"]))
         scored.append(a)
-    relevant=[a for a in scored if a["relevance_score"]>=.50 and a["credibility_score"]>=.70]
+relevant = [
+    a for a in scored
+    if a["relevance_score"] >= relevance_threshold
+    and a["credibility_score"] >= credibility_threshold
+]
     unique=[]
     for a in sorted(relevant,key=lambda x:x["final_score"],reverse=True):
         if any(SequenceMatcher(None,norm(a["title"]),norm(x["title"])).ratio()>=.86 for x in unique): continue
