@@ -10,6 +10,26 @@ from credibility import score_source
 
 STATE_FILE = Path(__file__).parent.parent / "data" / "state.json"
 
+FMCG_POSITIVE = {
+    "fmcg", "consumer goods", "consumer brand", "food", "foods", "snack",
+    "snacks", "beverage", "beverages", "drink", "drinks", "dairy",
+    "grocery", "packaged food", "packaged foods", "nutrition",
+    "supplement", "supplements", "wellness", "beauty", "cosmetics",
+    "personal care", "skin care", "skincare", "hair care", "haircare",
+    "hygiene", "home care", "household", "oral care", "baby care",
+    "pet care", "consumer health", "functional nutrition", "natural foods",
+    "better-for-you", "d2c", "direct-to-consumer", "confectionery",
+    "chocolate", "bakery", "granola", "seasoning", "sauces"
+}
+
+FMCG_NEGATIVE = {
+    "fintech", "credit management", "banking", "lending", "insurance",
+    "saas", "software", "enterprise software", "edtech", "proptech",
+    "real estate", "logistics", "infrastructure", "industrial",
+    "landscaping", "construction", "telecom", "cybersecurity",
+    "payments", "crypto", "agritech", "automotive", "manufacturing"
+}
+
 
 def load_state():
     if STATE_FILE.exists():
@@ -31,6 +51,18 @@ def save_state(state):
     )
 
 
+def fmcg_classify(title, summary):
+    text = f"{title} {summary}".lower()
+    positive_hits = sum(1 for k in FMCG_POSITIVE if k in text)
+    negative_hits = sum(1 for k in FMCG_NEGATIVE if k in text)
+
+    # A clear non-FMCG business category overrides generic consumer language.
+    if negative_hits > 0 and positive_hits <= 2:
+        return False
+
+    return positive_hits > 0
+
+
 def headline_similarity(a, b):
     return SequenceMatcher(None, norm(a), norm(b)).ratio()
 
@@ -39,20 +71,13 @@ def extract_deal_entities(title, summary, article_type):
     title = re.sub(r"\s+", " ", title or "").strip()
 
     patterns = [
-        (r"^(.*?)\s+(?:to\s+)?acquire(?:s|d)?\s+(.+?)(?:\s*[-|:]\s*.*)?$",
-         "Acquisition"),
-        (r"^(.*?)\s+(?:to\s+)?buy(?:s)?\s+(.+?)(?:\s*[-|:]\s*.*)?$",
-         "Acquisition"),
-        (r"^(.*?)\s+(?:to\s+)?purchase\s+(.+?)(?:\s*[-|:]\s*.*)?$",
-         "Acquisition"),
-        (r"^(.*?)\s+(?:to\s+)?take(?:s)?\s+(?:a\s+)?(?:majority\s+|minority\s+)?stake\s+in\s+(.+?)(?:\s*[-|:]\s*.*)?$",
-         "Stake purchase"),
-        (r"^(.*?)\s+(?:to\s+)?invest(?:s|ed)?\s+in\s+(.+?)(?:\s*[-|:]\s*.*)?$",
-         "Investment"),
-        (r"^(.*?)\s+acquisition\s+of\s+(.+?)(?:\s*[-|:]\s*.*)?$",
-         "Acquisition"),
-        (r"^(.+?)\s+(?:raises|raised)\s+.*?(?:led|backed)\s+by\s+(.+?)$",
-         "Investment"),
+        (r"^(.*?)\s+(?:to\s+)?acquire(?:s|d)?\s+(.+?)(?:\s*[-|:]\s*.*)?$", "Acquisition"),
+        (r"^(.*?)\s+(?:to\s+)?buy(?:s)?\s+(.+?)(?:\s*[-|:]\s*.*)?$", "Acquisition"),
+        (r"^(.*?)\s+(?:to\s+)?purchase\s+(.+?)(?:\s*[-|:]\s*.*)?$", "Acquisition"),
+        (r"^(.*?)\s+(?:to\s+)?take(?:s)?\s+(?:a\s+)?(?:majority\s+|minority\s+)?stake\s+in\s+(.+?)(?:\s*[-|:]\s*.*)?$", "Stake purchase"),
+        (r"^(.*?)\s+(?:to\s+)?invest(?:s|ed)?\s+in\s+(.+?)(?:\s*[-|:]\s*.*)?$", "Investment"),
+        (r"^(.*?)\s+acquisition\s+of\s+(.+?)(?:\s*[-|:]\s*.*)?$", "Acquisition"),
+        (r"^(.+?)\s+(?:raises|raised)\s+.*?(?:led|backed)\s+by\s+(.+?)$", "Investment"),
     ]
 
     for pattern, dtype in patterns:
@@ -69,7 +94,6 @@ def extract_deal_entities(title, summary, article_type):
             else:
                 buyer, target = left, right
 
-            # Remove generic words that make target names look awkward.
             target = re.sub(
                 r"^(?:wellness company|consumer brand|consumer company)\s+",
                 "",
@@ -77,29 +101,16 @@ def extract_deal_entities(title, summary, article_type):
                 flags=re.IGNORECASE,
             ).strip()
 
-            bad = [
-                "press release", "pr newswire", "citybiz",
-                "business wire", "yahoo finance"
-            ]
-
-            if any(x in buyer.lower() for x in bad):
-                continue
-            if any(x in target.lower() for x in bad):
+            bad = ["press release", "pr newswire", "citybiz", "business wire", "yahoo finance"]
+            if any(x in buyer.lower() for x in bad) or any(x in target.lower() for x in bad):
                 continue
 
-            return {
-                "buyer": buyer,
-                "target": target,
-                "deal_type": dtype,
-            }
+            return {"buyer": buyer, "target": target, "deal_type": dtype}
 
     return None
 
 
 def extract_deal_value(text):
-    """Extract a stated transaction/funding value from title/summary."""
-    text = text or ""
-
     patterns = [
         r"(?i)(?:acquire|acquisition|purchase|deal|transaction|investment|funding|raises?|raised|worth|valued at|valuation)[^.]{0,100}?\$?\s*([\d,.]+)\s*(billion|bn|million|mn|m|crore|cr)\b",
         r"(?i)\$?\s*([\d,.]+)\s*(billion|bn|million|mn)\b",
@@ -108,17 +119,15 @@ def extract_deal_value(text):
     ]
 
     for pattern in patterns:
-        m = re.search(pattern, text)
+        m = re.search(pattern, text or "")
         if not m:
             continue
-
         try:
             amount = float(m.group(1).replace(",", ""))
         except ValueError:
             continue
 
         unit = m.group(2).lower()
-
         if unit in {"billion", "bn"}:
             return {"amount": amount, "currency": "$", "unit": "B"}
         if unit in {"million", "mn", "m"}:
@@ -132,69 +141,35 @@ def extract_deal_value(text):
 def classify_status(title, summary):
     text = f"{title} {summary}".lower()
 
-    potential_terms = [
-        "explores a sale",
-        "exploring a sale",
-        "seeks buyer",
-        "seeking a buyer",
-        "considering a sale",
-        "potential sale",
-        "may acquire",
-        "could acquire",
-        "in talks",
-        "reportedly in talks",
-    ]
-
-    completed_terms = [
-        "completed the acquisition",
-        "completed its acquisition",
-        "has completed",
-        "closed the acquisition",
-        "deal closed",
-    ]
-
-    announced_terms = [
-        "to acquire",
-        "to purchase",
-        "agrees to acquire",
-        "agreed to acquire",
-        "acquires",
-        "acquired",
-        "acquisition of",
-        "raises",
-        "raised",
-        "investment in",
-        "invests in",
-        "funding led by",
-    ]
-
-    if any(x in text for x in potential_terms):
+    if any(x in text for x in [
+        "explores a sale", "exploring a sale", "seeks buyer",
+        "seeking a buyer", "considering a sale", "potential sale",
+        "may acquire", "could acquire", "in talks", "reportedly in talks"
+    ]):
         return "Potential / Reported"
-    if any(x in text for x in completed_terms):
+
+    if any(x in text for x in [
+        "completed the acquisition", "completed its acquisition",
+        "has completed", "closed the acquisition", "deal closed"
+    ]):
         return "Completed"
-    if any(x in text for x in announced_terms):
+
+    if any(x in text for x in [
+        "to acquire", "to purchase", "agrees to acquire",
+        "agreed to acquire", "acquires", "acquired",
+        "acquisition of", "raises", "raised",
+        "investment in", "invests in", "funding led by"
+    ]):
         return "Announced"
+
     return "Reported"
 
 
-def run_pipeline(
-    incoming,
-    state,
-    relevance_threshold=0.35,
-    credibility_threshold=0.60,
-):
-    old_articles = {
-        a.get("fingerprint")
-        for a in state.get("articles", [])
-        if a.get("fingerprint")
+def run_pipeline(incoming, state, relevance_threshold=0.35, credibility_threshold=0.60):
+    old_fingerprints = {
+        a.get("fingerprint") for a in state.get("articles", []) if a.get("fingerprint")
     }
-
-    # Fallback for older state files.
-    old_urls = {
-        a.get("url")
-        for a in state.get("articles", [])
-        if a.get("url")
-    }
+    old_urls = {a.get("url") for a in state.get("articles", []) if a.get("url")}
 
     new_articles = []
 
@@ -202,10 +177,9 @@ def run_pipeline(
         title = article.get("title", "")
         source = article.get("source", "")
         fingerprint = norm(f"{title} | {source}")
-
         article["fingerprint"] = fingerprint
 
-        if fingerprint not in old_articles and article.get("url") not in old_urls:
+        if fingerprint not in old_fingerprints and article.get("url") not in old_urls:
             new_articles.append(article)
 
     scored = []
@@ -219,36 +193,28 @@ def run_pipeline(
         c = score_source(source)
         final = round(0.65 * r + 0.35 * c, 3)
 
+        article["fmcg_pass"] = fmcg_classify(title, summary)
         article["relevance_score"] = r
         article["credibility_score"] = c
         article["final_score"] = final
         article["deal_type"] = deal_type(f"{title} {summary}")
-
         scored.append(article)
 
     relevant = [
         a for a in scored
-        if a["relevance_score"] >= relevance_threshold
+        if a["fmcg_pass"]
+        and a["relevance_score"] >= relevance_threshold
         and a["credibility_score"] >= credibility_threshold
-        and a.get("fmcg_pass", False)
     ]
 
     unique = []
     duplicates_removed = 0
 
-    for article in sorted(
-        relevant,
-        key=lambda x: x["final_score"],
-        reverse=True,
-    ):
+    for article in sorted(relevant, key=lambda x: x["final_score"], reverse=True):
         duplicate = any(
-            headline_similarity(
-                article.get("title", ""),
-                existing.get("title", ""),
-            ) >= 0.86
+            headline_similarity(article.get("title", ""), existing.get("title", "")) >= 0.86
             for existing in unique
         )
-
         if duplicate:
             duplicates_removed += 1
         else:
@@ -273,64 +239,37 @@ def run_pipeline(
         buyer = entities["buyer"]
         target = entities["target"]
         dtype = entities["deal_type"]
-
         text = f"{article.get('title', '')} {article.get('summary', '')}"
-        value = extract_deal_value(text)
-        status = classify_status(
-            article.get("title", ""),
-            article.get("summary", ""),
-        )
 
+        value = extract_deal_value(text)
+        status = classify_status(article.get("title", ""), article.get("summary", ""))
         fingerprint = norm(f"{buyer} {target} {dtype}")
 
         matched = None
         for deal in deals:
-            similarity = SequenceMatcher(
-                None,
-                fingerprint,
-                deal.get("fingerprint", ""),
-            ).ratio()
-
-            if similarity >= 0.78:
+            if SequenceMatcher(None, fingerprint, deal.get("fingerprint", "")).ratio() >= 0.78:
                 matched = deal
                 break
 
         if matched:
             sources = matched.setdefault("sources", [])
             url = article.get("url")
-
             if url and url not in sources:
                 sources.append(url)
-
             if value:
                 matched["deal_value"] = value
-
-            # Don't downgrade a completed deal.
             if matched.get("status") != "Completed":
                 matched["status"] = status
-
             if len(sources) >= 2 or article["credibility_score"] >= 0.9:
                 matched["confidence"] = "High"
-
-            matched["last_updated"] = (
-                article.get("published")
-                or datetime.now().isoformat()
-            )
-
+            matched["last_updated"] = article.get("published") or datetime.now().isoformat()
             updated_deals += 1
-
         else:
-            confidence = (
-                "High"
-                if (
-                    article["final_score"] >= 0.82
-                    or article["credibility_score"] >= 0.9
-                )
-                else "Medium"
-            )
+            confidence = "High" if (
+                article["final_score"] >= 0.82 or article["credibility_score"] >= 0.9
+            ) else "Medium"
 
             deal_id = f"DEAL-{len(deals) + 1:04d}"
-
             deals.append({
                 "deal_id": deal_id,
                 "buyer": buyer,
@@ -340,20 +279,11 @@ def run_pipeline(
                 "sector": "FMCG / Consumer",
                 "status": status,
                 "deal_value": value,
-                "deal_value_inr_cr": None,
                 "confidence": confidence,
-                "summary": re.sub(
-                    r"\s+",
-                    " ",
-                    article.get("summary", ""),
-                ).strip()[:420],
+                "summary": re.sub(r"\s+", " ", article.get("summary", "")).strip()[:420],
                 "sources": [article.get("url")],
-                "last_updated": (
-                    article.get("published")
-                    or datetime.now().isoformat()
-                ),
+                "last_updated": article.get("published") or datetime.now().isoformat(),
             })
-
             article["deal_id"] = deal_id
             new_deals += 1
 
@@ -362,7 +292,6 @@ def run_pipeline(
         for a in state.get("articles", [])
         if a.get("fingerprint") or a.get("url")
     }
-
     for article in scored:
         key = article.get("fingerprint") or article.get("url")
         if key:
