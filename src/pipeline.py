@@ -10,7 +10,12 @@ STATE=Path(__file__).parent.parent/"data/state.json"
 def load_state():
     return json.loads(STATE.read_text()) if STATE.exists() else {"articles":[],"deals":[],"trace":[],"stats":{},"last_refresh":None}
 def save_state(s): STATE.write_text(json.dumps(s,ensure_ascii=False,indent=2))
-def run_pipeline(incoming,state):
+def run_pipeline(
+    incoming,
+    state,
+    relevance_threshold=0.35,
+    credibility_threshold=0.60
+):
     old={a["url"] for a in state.get("articles",[]) if a.get("url")}
     new=[a for a in incoming if a.get("url") not in old]
     scored=[]
