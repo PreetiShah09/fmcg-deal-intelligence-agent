@@ -297,6 +297,16 @@ def run_pipeline(incoming, state, relevance_threshold=0.35, credibility_threshol
         if key:
             article_map[key] = article
 
+    stored_articles = list(article_map.values())
+
+    total_relevant_articles = sum(
+        1
+        for a in stored_articles
+        if a.get("fmcg_pass")
+        and a.get("relevance_score", 0) >= relevance_threshold
+        and a.get("credibility_score", 0) >= credibility_threshold
+    )
+
     trace = [
         f"✓ Retrieved {len(incoming)} public articles",
         f"✓ {len(new_articles)} new articles since last refresh",
@@ -309,13 +319,13 @@ def run_pipeline(incoming, state, relevance_threshold=0.35, credibility_threshol
     ]
 
     return {
-        "articles": list(article_map.values()),
+        "articles": stored_articles,
         "deals": deals,
         "trace": trace,
         "stats": {
             "articles_scanned": len(incoming),
             "new_articles": len(new_articles),
-            "relevant_articles": len(relevant),
+            "relevant_articles": total_relevant_articles,
             "duplicates_removed": duplicates_removed,
             "new_deals": new_deals,
             "updated_deals": updated_deals,
