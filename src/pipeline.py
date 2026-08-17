@@ -1,3 +1,4 @@
+
 import json
 import re
 from pathlib import Path
@@ -7,14 +8,12 @@ from difflib import SequenceMatcher
 from scoring import norm, relevance, deal_type
 from credibility import score_source
 
-
 STATE_FILE = Path(__file__).parent.parent / "data" / "state.json"
 
 
 def load_state():
     if STATE_FILE.exists():
         return json.loads(STATE_FILE.read_text(encoding="utf-8"))
-
     return {
         "articles": [],
         "deals": [],
@@ -26,19 +25,71 @@ def load_state():
 
 def save_state(state):
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-
     STATE_FILE.write_text(
         json.dumps(state, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
 
-def headline_similarity(title_a, title_b):
-    return SequenceMatcher(
-        None,
-        norm(title_a),
-        norm(title_b),
-    ).ratio()
+def headline_similarity(a, b):
+    return SequenceMatcher(None, norm(a), norm(b)).ratio()
+
+
+def extract_deal_entities(title, summary, article_type):
+    """
+    Conservative extraction.
+    Only creates a deal when the headline contains a clear transaction pattern.
+    Otherwise the article remains evidence but is NOT promoted to Deal Monitor.
+    """
+    title = re.sub(r"\s+", " ", title or "").strip()
+
+    patterns = [
+        # Buyer -> target
+        (r"^(.*?)\s+(?:to\s+)?acquire(?:s|d)?\s+(.+?)(?:\s*[-|:]\s*.*)?$",
+         "Acquisition"),
+        (r"^(.*?)\s+(?:to\s+)?buy(?:s)?\s+(.+?)(?:\s*[-|:]\s*.*)?$",
+         "Acquisition"),
+        (r"^(.*?)\s+(?:to\s+)?take(?:s)?\s+(?:a\s+)?(?:majority\s+|minority\s+)?stake\s+in\s+(.+?)(?:\s*[-|:]\s*.*)?$",
+         "Stake purchase"),
+        (r"^(.*?)\s+(?:to\s+)?invest(?:s|ed)?\s+in\s+(.+?)(?:\s*[-|:]\s*.*)?$",
+         "Investment"),
+        (r"^(.*?)\s+acquisition\s+of\s+(.+?)(?:\s*[-|:]\s*.*)?$",
+         "Acquisition"),
+        # Target raises funding led by investor
+        (r"^(.+?)\s+(?:raises|raised)\s+.*?(?:led|backed)\s+by\s+(.+?)$",
+         "Investment"),
+    ]
+
+    for pattern, dtype in patterns:
+        match = re.search(pattern, title, flags=re.IGNORECASE)
+        if match:
+            left = match.group(1).strip(" -:;,")
+            right = match.group(2).strip(" -:;,")
+            if len(left) >= 2 and len(right) >= 2:
+                if dtype == "Investment" and "raises" in title.lower():
+                    target = left
+                    buyer = right
+                else:
+                    buyer = left
+                    target = right
+
+                # Reject obvious publisher/category text.
+                bad_fragments = [
+                    "press release", "pr newswire", "citybiz",
+                    "business wire", "yahoo finance"
+                ]
+                if any(x in buyer.lower() for x in bad_fragments):
+                    return None
+                if any(x in target.lower() for x in bad_fragments):
+                    return None
+
+                return {
+                    "buyer": buyer,
+                    "target": target,
+                    "deal_type": dtype,
+                }
+
+    return None
 
 
 def run_pipeline(
@@ -47,133 +98,88 @@ def run_pipeline(
     relevance_threshold=0.35,
     credibility_threshold=0.60,
 ):
-
     old_articles = {
-        article.get("url")
-        for article in state.get("articles", [])
-        if article.get("url")
+        a.get("url")
+        for a in state.get("articles", [])
+        if a.get("url")
     }
 
-    # --------------------------------
-    # 1. Identify genuinely new articles
-    # --------------------------------
-
     new_articles = [
-        article
-        for article in incoming
-        if article.get("url") not in old_articles
+        a for a in incoming
+        if a.get("url") not in old_articles
     ]
 
-    # --------------------------------
-    # 2. Score every new article
-    # --------------------------------
-
-    scored_articles = []
+    scored = []
 
     for article in new_articles:
-
         title = article.get("title", "")
         summary = article.get("summary", "")
         source = article.get("source", "")
 
-        relevance_score = relevance(title, summary)
-        credibility_score = score_source(source)
+        r = relevance(title, summary)
+        c = score_source(source)
+        final = round(0.65 * r + 0.35 * c, 3)
 
-        final_score = round(
-            0.65 * relevance_score
-            + 0.35 * credibility_score,
-            3,
-        )
+        article["relevance_score"] = r
+        article["credibility_score"] = c
+        article["final_score"] = final
+        article["deal_type"] = deal_type(f"{title} {summary}")
 
-        article["relevance_score"] = relevance_score
-        article["credibility_score"] = credibility_score
-        article["final_score"] = final_score
-        article["deal_type"] = deal_type(
-            f"{title} {summary}"
-        )
+        scored.append(article)
 
-        scored_articles.append(article)
-
-    # --------------------------------
-    # 3. Relevance + credibility filter
-    # --------------------------------
-
-    relevant_articles = [
-        article
-        for article in scored_articles
-        if (
-            article["relevance_score"] >= relevance_threshold
-            and article["credibility_score"] >= credibility_threshold
-        )
+    relevant = [
+        a for a in scored
+        if a["relevance_score"] >= relevance_threshold
+        and a["credibility_score"] >= credibility_threshold
     ]
 
-    # --------------------------------
-    # 4. Article-level de-duplication
-    # --------------------------------
-
-    unique_articles = []
+    unique = []
     duplicates_removed = 0
 
     for article in sorted(
-        relevant_articles,
+        relevant,
         key=lambda x: x["final_score"],
         reverse=True,
     ):
-
-        duplicate = False
-
-        for existing in unique_articles:
-
-            similarity = headline_similarity(
+        duplicate = any(
+            headline_similarity(
                 article.get("title", ""),
                 existing.get("title", ""),
-            )
-
-            if similarity >= 0.86:
-                duplicate = True
-                break
+            ) >= 0.86
+            for existing in unique
+        )
 
         if duplicate:
             duplicates_removed += 1
         else:
-            unique_articles.append(article)
-
-    # --------------------------------
-    # 5. Deal-level matching
-    # --------------------------------
+            unique.append(article)
 
     deals = state.get("deals", [])
-
     new_deals = 0
     updated_deals = 0
+    rejected_deal_candidates = 0
 
-    for article in unique_articles:
-
-        title = article.get("title", "")
-
-        # Simple, transparent entity extraction.
-        # We intentionally avoid hallucinating buyer/target names.
-
-        match = re.split(
-            r"\s(?:acquires|acquire|buys|to acquire|invests in|agrees to acquire)\s",
-            title,
-            flags=re.IGNORECASE,
+    for article in unique:
+        entities = extract_deal_entities(
+            article.get("title", ""),
+            article.get("summary", ""),
+            article.get("deal_type", "Other"),
         )
 
-        if len(match) < 2:
+        # Critical safeguard:
+        # relevant article != confirmed deal.
+        if not entities:
+            rejected_deal_candidates += 1
             continue
 
-        buyer = match[0].strip(" -:")
-        target = match[1].strip(" -:")
+        buyer = entities["buyer"]
+        target = entities["target"]
+        dtype = entities["deal_type"]
 
-        fingerprint = norm(
-            f"{buyer} {target} {article.get('deal_type', 'Other')}"
-        )
+        fingerprint = norm(f"{buyer} {target} {dtype}")
 
-        matched_deal = None
-
+        matched = None
         for deal in deals:
-
             similarity = SequenceMatcher(
                 None,
                 fingerprint,
@@ -181,55 +187,41 @@ def run_pipeline(
             ).ratio()
 
             if similarity >= 0.78:
-                matched_deal = deal
+                matched = deal
                 break
 
-        # --------------------------------
-        # Existing deal
-        # --------------------------------
-
-        if matched_deal:
-
-            sources = matched_deal.setdefault(
-                "sources",
-                [],
-            )
-
+        if matched:
+            sources = matched.setdefault("sources", [])
             url = article.get("url")
 
             if url and url not in sources:
                 sources.append(url)
 
-            matched_deal["last_updated"] = (
+            matched["last_updated"] = (
                 article.get("published")
                 or datetime.now().isoformat()
             )
 
+            if len(sources) >= 2:
+                matched["confidence"] = "High"
+
             updated_deals += 1
 
-        # --------------------------------
-        # New deal
-        # --------------------------------
-
         else:
-
-            deal_id = f"DEAL-{len(deals) + 1:04d}"
-
             confidence = (
                 "High"
                 if article["final_score"] >= 0.82
                 else "Medium"
             )
 
-            new_deal = {
+            deal_id = f"DEAL-{len(deals) + 1:04d}"
+
+            deals.append({
                 "deal_id": deal_id,
                 "buyer": buyer,
                 "target": target,
                 "fingerprint": fingerprint,
-                "deal_type": article.get(
-                    "deal_type",
-                    "Other",
-                ),
+                "deal_type": dtype,
                 "sector": "FMCG / Consumer",
                 "status": "Reported / Announced",
                 "deal_value_inr_cr": None,
@@ -238,62 +230,38 @@ def run_pipeline(
                     r"\s+",
                     " ",
                     article.get("summary", ""),
-                ).strip()[:400],
-                "sources": [
-                    article.get("url")
-                ],
+                ).strip()[:420],
+                "sources": [article.get("url")],
                 "last_updated": (
                     article.get("published")
                     or datetime.now().isoformat()
                 ),
-            }
-
-            deals.append(new_deal)
+            })
 
             article["deal_id"] = deal_id
-
             new_deals += 1
 
-    # --------------------------------
-    # 6. Merge article history
-    # --------------------------------
-
+    # Preserve article evidence even when it is not promoted to a deal.
     article_map = {
-        article.get("url"): article
-        for article in state.get("articles", [])
-        if article.get("url")
+        a.get("url"): a
+        for a in state.get("articles", [])
+        if a.get("url")
     }
 
-    for article in scored_articles:
-
-        url = article.get("url")
-
-        if url:
-            article_map[url] = article
-
-    # --------------------------------
-    # 7. Agent trace
-    # --------------------------------
+    for article in scored:
+        if article.get("url"):
+            article_map[article["url"]] = article
 
     trace = [
         f"✓ Retrieved {len(incoming)} public articles",
         f"✓ {len(new_articles)} new articles since last refresh",
-        (
-            f"✓ {len(relevant_articles)} passed "
-            "relevance + credibility filters"
-        ),
-        (
-            f"✓ {duplicates_removed} near-duplicate "
-            "articles removed"
-        ),
+        f"✓ {len(relevant)} passed relevance + credibility filters",
+        f"✓ {duplicates_removed} near-duplicate articles removed",
+        f"✓ {rejected_deal_candidates} relevant articles kept as evidence only",
         f"✓ {new_deals} new deals detected",
         f"✓ {updated_deals} existing deals updated",
         f"✓ Newsletter regenerated from {len(deals)} tracked deals",
     ]
-
-    # --------------------------------
-    # 8. Return updated state
-    # --------------------------------
 
     return {
         "articles": list(article_map.values()),
@@ -302,7 +270,7 @@ def run_pipeline(
         "stats": {
             "articles_scanned": len(incoming),
             "new_articles": len(new_articles),
-            "relevant_articles": len(relevant_articles),
+            "relevant_articles": len(relevant),
             "duplicates_removed": duplicates_removed,
             "new_deals": new_deals,
             "updated_deals": updated_deals,
