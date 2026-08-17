@@ -1,0 +1,42 @@
+[
+  {
+    "date": "2026-07-23",
+    "buyer": "Wipro Consumer",
+    "target": "Good Home + Eva",
+    "deal_type": "Acquisition",
+    "value_inr_cr": 256,
+    "source": "Economic Times"
+  },
+  {
+    "date": "2026-07-21",
+    "buyer": "Wipro Consumer",
+    "target": "S Brands Consumer Care",
+    "deal_type": "Acquisition",
+    "value_inr_cr": null,
+    "source": "Business Standard"
+  },
+  {
+    "date": "2026-06-18",
+    "buyer": "L'Oréal",
+    "target": "Innovist",
+    "deal_type": "Majority stake",
+    "value_inr_cr": null,
+    "source": "L'Oréal"
+  },
+  {
+    "date": "2026-07-01",
+    "buyer": "Unilever Ventures",
+    "target": "Supply6",
+    "deal_type": "Investment",
+    "value_inr_cr": 48,
+    "source": "Economic Times"
+  },
+  {
+    "date": "2026-01-26",
+    "buyer": "Marico",
+    "target": "Zea Maize / 4700BC",
+    "deal_type": "Acquisition",
+    "value_inr_cr": 226.8,
+    "source": "Marico"
+  }
+]

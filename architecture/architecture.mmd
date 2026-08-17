@@ -1,0 +1,12 @@
+flowchart TD
+UI[Refresh Now] --> ING[Ingestion: Public RSS]
+ING --> CLEAN[Cleaning]
+CLEAN --> SCORE[Relevance scoring]
+CLEAN --> CRED[Credibility scoring]
+SCORE --> DEDUP[Article de-duplication]
+CRED --> DEDUP
+DEDUP --> MATCH[Deal matching: Buyer + Target + Type]
+MATCH --> STORE[(Persistent deal store)]
+STORE --> NEWS[Newsletter]
+STORE --> MON[Deal Monitor]
+STORE --> TRACE[Agent Trace]
