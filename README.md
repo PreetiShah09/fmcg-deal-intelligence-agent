@@ -20,24 +20,22 @@ The goal is not to replace primary-source diligence. It is to provide a fast fir
 
 ## 2. Architecture
 
+```text
 Public News / RSS Sources
           ↓
-      Ingestion
+       Ingestion
           ↓
- Cleaning & Normalisation
+Cleaning & Normalisation
           ↓
- FMCG Relevance + Credibility
+FMCG Relevance + Credibility
           ↓
-   Remove Near-Duplicates
+  Near-Duplicate Removal
           ↓
-     Deal Extraction
+    Deal Extraction
           ↓
      Deal Matching
           ↓
- ┌────────┴─────────┐
- ↓                  ↓
-Deal Monitor    Article Evidence
- └────────┬─────────┘
+Deal Monitor + Article Evidence
           ↓
       Newsletter
 
