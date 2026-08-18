@@ -20,56 +20,30 @@ The goal is not to replace primary-source diligence. It is to provide a fast fir
 
 ## 2. Architecture
 
-```text
-                    PUBLIC NEWS / RSS SOURCES
-                              │
-                              ▼
-                       ┌─────────────┐
-                       │  INGESTION  │
-                       └──────┬──────┘
-                              │
-                              ▼
-                       ┌─────────────┐
-                       │   CLEANING  │
-                       │ Normalize   │
-                       │ + Fingerprint│
-                       └──────┬──────┘
-                              │
-                              ▼
-                  ┌─────────────────────────┐
-                  │ FMCG + DEAL SCREENING   │
-                  │ Relevance + Credibility │
-                  └───────────┬─────────────┘
-                              │
-                              ▼
-                       ┌─────────────┐
-                       │ DE-DUPLICATE│
-                       │   ARTICLES  │
-                       └──────┬──────┘
-                              │
-                              ▼
-                       ┌─────────────┐
-                       │ DEAL MATCH  │
-                       │ Buyer/Target│
-                       │ Type/Value  │
-                       └──────┬──────┘
-                              │
-                    ┌─────────┴─────────┐
-                    ▼                   ▼
-             DEAL MONITOR          EVIDENCE
-                    │                   │
-                    └─────────┬─────────┘
-                              ▼
-                       ┌─────────────┐
-                       │ NEWSLETTER  │
-                       └─────────────┘
-```
+Public News / RSS Sources
+          ↓
+      Ingestion
+          ↓
+ Cleaning & Normalisation
+          ↓
+ FMCG Relevance + Credibility
+          ↓
+   Remove Near-Duplicates
+          ↓
+     Deal Extraction
+          ↓
+     Deal Matching
+          ↓
+ ┌────────┴─────────┐
+ ↓                  ↓
+Deal Monitor    Article Evidence
+ └────────┬─────────┘
+          ↓
+      Newsletter
 
 ### Pipeline
 
 **Ingestion → cleaning → FMCG classification → relevance & credibility scoring → de-duplication → deal matching → newsletter**
-
----
 
 ## 3. How the Agent Works
 
@@ -98,7 +72,7 @@ Clear non-FMCG categories can override generic consumer language. Examples inclu
 
 This helps prevent a generic "consumer" or "B2C" article from being incorrectly treated as an FMCG deal.
 
-### 3.3 Relevance + Credibility Scoring
+## 3.3 Relevance + Credibility Scoring
 
 Each new article receives:
 
@@ -110,7 +84,7 @@ Only articles above the selected thresholds continue through the main screening 
 
 **Important assumption:** credibility is a source-quality heuristic, not independent fact verification.
 
-### 3.4 Near-Duplicate Removal
+## 3.4 Near-Duplicate Removal
 
 Relevant articles are compared using normalized headline similarity.
 
@@ -118,7 +92,7 @@ A headline similarity of **≥ 0.86** is treated as a near duplicate, with the s
 
 Article-level deduplication is separate from deal-level consolidation.
 
-### 3.5 Deal Extraction and Matching
+## 3.5 Deal Extraction and Matching
 
 Clear transaction language is used to identify:
 
@@ -221,22 +195,7 @@ Shows the pipeline counts for the latest refresh:
 
 ---
 
-## 6. Final Deliverables
-
-The project submission includes:
-
-- **Live Streamlit demo:** https://fmcg-deal-agent-17082026.streamlit.app/
-- **GitHub source code:** https://github.com/PreetiShah09/fmcg-deal-intelligence-agent
-- **Raw deal data:** CSV
-- **Structured newsletter:** Excel
-- **Architecture and methodology:** this README
-- **Agent trace and evidence:** available in the Streamlit application
-
-The Excel newsletter is a **point-in-time snapshot** of the deal intelligence screen. The live application can continue to update independently when refreshed.
-
----
-
-## 7. Methodology and Limitations
+## 6. Methodology and Limitations
 
 - Public-source discovery is not guaranteed to be exhaustive.
 - The system is dependent on the configured public news/RSS sources.
@@ -249,7 +208,7 @@ The Excel newsletter is a **point-in-time snapshot** of the deal intelligence sc
 
 ---
 
-## 8. Why This Is an Agent-Style Workflow
+## 7. Why This Is an Agent-Style Workflow
 
 The application is designed as a lightweight decision pipeline rather than a simple news scraper.
 
@@ -272,7 +231,7 @@ workflow.
 
 ---
 
-## 9. Run Locally
+## 8. Run Locally
 
 ```bash
 pip install -r requirements.txt
@@ -281,7 +240,7 @@ streamlit run app.py
 
 ---
 
-## 10. Repository Structure
+## 9. Repository Structure
 
 ```text
 .
@@ -300,7 +259,7 @@ streamlit run app.py
 
 ---
 
-## 11. Final Demo Flow
+## 10. Final Demo Flow
 
 1. Open the Streamlit application.
 2. Set the look-back window and screening thresholds.
@@ -309,20 +268,3 @@ streamlit run app.py
 5. Use **Reset Deal Store** only when demonstrating a clean first run.
 6. Provide the structured newsletter Excel and raw CSV as separate submission artifacts.
 
----
-
-## 12. Submission Checklist
-
-- [x] Live Streamlit application
-- [x] Public-source ingestion
-- [x] FMCG relevance filtering
-- [x] Source credibility scoring
-- [x] Near-duplicate removal
-- [x] Deal-level consolidation
-- [x] Persistent deal tracking
-- [x] Article evidence view
-- [x] Agent trace
-- [x] Professional newsletter structure
-- [x] Raw CSV data
-- [x] Structured newsletter Excel
-- [x] README documenting architecture, methodology and limitations
