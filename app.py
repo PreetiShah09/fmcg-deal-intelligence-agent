@@ -168,7 +168,7 @@ def deal_dataframe(deals):
             "Deal Type": deal.get("deal_type", ""),
             "Status": deal.get("status", ""),
             "Sector": deal.get("sector", ""),
-            "Value": value_display,
+            "Disclosed Value": value_display,
             "Confidence": deal.get("confidence", ""),
             "Sources": len(deal.get("sources", [])),
             "Last Updated": deal.get("last_updated", ""),
