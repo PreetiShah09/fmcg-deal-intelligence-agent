@@ -231,8 +231,4 @@ with tab_trace:
     else:
         st.info("Run Refresh Now to see the agent trace.")
 
-st.divider()
-st.caption(
-    "Method note: public-source discovery is not guaranteed to be exhaustive. "
-    "Credibility is a source-quality heuristic, not independent fact verification."
-)
+
