@@ -181,7 +181,7 @@ def generate_newsletter(deals):
         lines.extend([
             f"### {i:02d} · {buyer} → {target}",
             "",
-            "| Deal type | Status | Value | Confidence |",
+            "| Deal type | Status | Disclosed Value | Confidence |",
             "|---|---|---:|---|",
             f"| {dtype} | **{status}** | **{value}** | {confidence} |",
             "",
