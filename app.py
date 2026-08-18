@@ -1,4 +1,3 @@
-import io
 import json
 import sys
 from datetime import datetime
@@ -11,7 +10,7 @@ sys.path.append(str(Path(__file__).parent / "src"))
 
 from ingestion import fetch_latest_articles
 from pipeline import run_pipeline, load_state, save_state
-from newsletter import generate_newsletter
+from newsletter import generate_newsletter, dedupe_deals
 
 st.set_page_config(
     page_title="FMCG Deal Intelligence",
@@ -22,9 +21,61 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    .block-container {padding-top: 2rem; padding-bottom: 3rem;}
-    .app-subtitle {color:#667085; margin-top:-10px; margin-bottom:24px;}
-    .section-note {color:#667085; font-size:0.92rem;}
+    :root {
+        --navy: #183B56;
+        --teal: #1F8A8A;
+        --teal-soft: #EAF7F6;
+        --sand: #F7F4EE;
+        --ink: #233044;
+        --muted: #6B7280;
+        --line: #D9E2EA;
+    }
+
+    .stApp { background: var(--sand); }
+    .block-container { padding-top: 2rem; padding-bottom: 3rem; max-width: 1400px; }
+    h1, h2, h3 { color: var(--navy) !important; }
+    h1 { letter-spacing: -0.03em; }
+    h2 { margin-top: 1.6rem; }
+    .app-subtitle { color: var(--muted); margin-top: -10px; margin-bottom: 24px; }
+    .section-note { color: var(--muted); font-size: 0.92rem; }
+
+    div[data-testid="stMetric"] {
+        background: white;
+        border: 1px solid var(--line);
+        border-top: 4px solid var(--teal);
+        border-radius: 10px;
+        padding: 12px 14px;
+        box-shadow: 0 2px 8px rgba(24,59,86,0.05);
+    }
+    div[data-testid="stMetricLabel"] { color: var(--muted); }
+    div[data-testid="stMetricValue"] { color: var(--navy); }
+
+    .stTabs [data-baseweb="tab-list"] { gap: 6px; }
+    .stTabs [data-baseweb="tab"] { color: var(--navy); font-weight: 600; }
+    .stTabs [aria-selected="true"] { color: var(--teal) !important; }
+
+    .stButton > button[kind="primary"] {
+        background: var(--navy);
+        border-color: var(--navy);
+    }
+    .stButton > button[kind="primary"]:hover {
+        background: var(--teal);
+        border-color: var(--teal);
+    }
+
+    .stMarkdown blockquote {
+        border-left: 4px solid var(--teal);
+        background: var(--teal-soft);
+        padding: 12px 16px;
+        border-radius: 0 8px 8px 0;
+    }
+    .stMarkdown table {
+        background: white;
+        border-radius: 8px;
+        overflow: hidden;
+    }
+    .stMarkdown th { background: #EAF0F5 !important; color: var(--navy) !important; }
+    .stMarkdown td, .stMarkdown th { border-color: var(--line) !important; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -138,19 +189,8 @@ def article_dataframe(articles):
     return df[display_cols] if display_cols else df
 
 
-def workbook_bytes(deals_df, articles_df, newsletter_text):
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        deals_df.to_excel(writer, index=False, sheet_name="Deal Tracker")
-        articles_df.to_excel(writer, index=False, sheet_name="Article Evidence")
-        pd.DataFrame({"Newsletter": newsletter_text.splitlines()}).to_excel(
-            writer, index=False, sheet_name="Newsletter"
-        )
-    output.seek(0)
-    return output.getvalue()
 
-
-deals = state.get("deals", [])
+deals = dedupe_deals(state.get("deals", []))
 articles = state.get("articles", [])
 deals_df = deal_dataframe(deals)
 articles_df = article_dataframe(articles)
@@ -160,13 +200,6 @@ newsletter_text = generate_newsletter(deals)
 json_bytes = json.dumps(state, ensure_ascii=False, indent=2).encode("utf-8")
 deals_csv = deals_df.to_csv(index=False).encode("utf-8-sig")
 articles_csv = articles_df.to_csv(index=False).encode("utf-8-sig")
-workbook = None
-try:
-    workbook = workbook_bytes(deals_df, articles_df, newsletter_text)
-except Exception:
-    # The app remains usable even if the optional Excel writer is unavailable.
-    workbook = None
-
 
 tab_newsletter, tab_deals, tab_articles, tab_trace = st.tabs(
     ["📰 Newsletter", "💼 Deal Monitor", "🔎 Article Evidence", "⚙️ Agent Trace"]
@@ -183,7 +216,7 @@ with tab_newsletter:
 
         st.divider()
         st.markdown("**Export this screen**")
-        export_cols = st.columns(4)
+        export_cols = st.columns(3)
         with export_cols[0]:
             st.download_button(
                 "Download Newsletter",
@@ -208,17 +241,6 @@ with tab_newsletter:
                 mime="text/csv",
                 use_container_width=True,
             )
-        with export_cols[3]:
-            if workbook:
-                st.download_button(
-                    "Download Excel Workbook",
-                    workbook,
-                    file_name="FMCG_Deal_Intelligence.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
-                )
-            else:
-                st.caption("Excel export requires openpyxl.")
     else:
         st.info("Click Refresh Now to run the live public-news screen.")
 
