@@ -81,6 +81,16 @@ def dedupe_deals(deals):
             (deal, match) if _deal_quality(deal) > _deal_quality(match) else (match, deal)
         )
         merged = dict(stronger)
+
+        # Preserve a disclosed transaction value even when the strongest
+        # announcement itself does not state consideration. For example,
+        # one source may say "Announced / undisclosed" while another
+        # credible article reports the disclosed value of the stake.
+        # The deal should remain one record, with the value retained from
+        # the supporting evidence rather than being lost during dedupe.
+        if not merged.get("deal_value") and weaker.get("deal_value"):
+            merged["deal_value"] = weaker.get("deal_value")
+
         sources = list(dict.fromkeys((match.get("sources", []) or []) + (deal.get("sources", []) or [])))
         merged["sources"] = sources
         unique[unique.index(match)] = merged
