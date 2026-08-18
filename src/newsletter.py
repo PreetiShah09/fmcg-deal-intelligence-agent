@@ -1,4 +1,91 @@
 from datetime import datetime
+from difflib import SequenceMatcher
+import re
+
+
+# Words that add little value when deciding whether two records describe
+# the same underlying transaction.
+_DEAL_STOPWORDS = {
+    "consumer", "care", "international", "company", "group", "brand",
+    "brands", "inc", "limited", "ltd", "private", "pvt", "the",
+    "premium", "skincare", "skin", "personal", "beauty", "acquire",
+    "acquisition", "buys", "buy", "buys", "stake", "majority",
+    "minority", "of", "in", "for", "rs", "cr", "crore", "deal",
+}
+
+
+def _normalise_entity(value):
+    text = re.sub(r"[^a-z0-9 ]+", " ", (value or "").lower())
+    text = re.sub(r"\s+", " ", text).strip()
+    tokens = [t for t in text.split() if t not in _DEAL_STOPWORDS and not t.isdigit()]
+    return set(tokens)
+
+
+def _same_deal(a, b):
+    buyer_a = _normalise_entity(a.get("buyer"))
+    buyer_b = _normalise_entity(b.get("buyer"))
+    target_a = _normalise_entity(a.get("target"))
+    target_b = _normalise_entity(b.get("target"))
+
+    if not buyer_a or not buyer_b or not target_a or not target_b:
+        return False
+
+    buyer_overlap = len(buyer_a & buyer_b) / max(1, min(len(buyer_a), len(buyer_b)))
+    target_overlap = len(target_a & target_b) / max(1, min(len(target_a), len(target_b)))
+
+    # Exact/near-exact buyer + target identity is enough to collapse syndicated
+    # or differently worded coverage of the same transaction.
+    if buyer_overlap >= 0.70 and target_overlap >= 0.70:
+        return True
+
+    # Handle cases such as "Wipro Consumer Care" vs "Wipro" where the
+    # remaining buyer identity is very short but the target is distinctive.
+    buyer_text_a = " ".join(sorted(buyer_a))
+    buyer_text_b = " ".join(sorted(buyer_b))
+    target_text_a = " ".join(sorted(target_a))
+    target_text_b = " ".join(sorted(target_b))
+
+    buyer_similarity = SequenceMatcher(None, buyer_text_a, buyer_text_b).ratio()
+    target_similarity = SequenceMatcher(None, target_text_a, target_text_b).ratio()
+
+    return buyer_similarity >= 0.55 and target_similarity >= 0.75
+
+
+def _deal_quality(deal):
+    confidence_rank = {"High": 3, "Medium": 2, "Low": 1}
+    status_rank = {"Completed": 4, "Announced": 3, "Reported": 2, "Potential / Reported": 1}
+    sources = len(deal.get("sources", []))
+    # Certainty is more important than a reported transaction value. This
+    # prevents a lower-quality reported article from replacing an announced
+    # record simply because it contains a number.
+    return (
+        confidence_rank.get(deal.get("confidence"), 0),
+        status_rank.get(deal.get("status"), 0),
+        sources,
+    )
+
+
+def dedupe_deals(deals):
+    """Collapse multiple articles describing the same underlying transaction."""
+    unique = []
+
+    for deal in deals or []:
+        match = next((existing for existing in unique if _same_deal(existing, deal)), None)
+
+        if match is None:
+            unique.append(dict(deal))
+            continue
+
+        # Keep the strongest record, but retain all evidence links.
+        stronger, weaker = (
+            (deal, match) if _deal_quality(deal) > _deal_quality(match) else (match, deal)
+        )
+        merged = dict(stronger)
+        sources = list(dict.fromkeys((match.get("sources", []) or []) + (deal.get("sources", []) or [])))
+        merged["sources"] = sources
+        unique[unique.index(match)] = merged
+
+    return unique
 
 
 def format_value(value):
@@ -26,7 +113,7 @@ def _source_links(sources):
 def generate_newsletter(deals):
     """Generate a professional, skimmable Markdown newsletter from tracked deals."""
     today = datetime.now().strftime("%d %b %Y")
-    deals = deals[:8]
+    deals = dedupe_deals(deals)[:8]
 
     if not deals:
         return "\n".join([
