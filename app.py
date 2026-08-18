@@ -1,4 +1,3 @@
-import json
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -196,11 +195,6 @@ deals_df = deal_dataframe(deals)
 articles_df = article_dataframe(articles)
 newsletter_text = generate_newsletter(deals)
 
-# Export package is generated from the same persistent state shown in the UI.
-json_bytes = json.dumps(state, ensure_ascii=False, indent=2).encode("utf-8")
-deals_csv = deals_df.to_csv(index=False).encode("utf-8-sig")
-articles_csv = articles_df.to_csv(index=False).encode("utf-8-sig")
-
 tab_newsletter, tab_deals, tab_articles, tab_trace = st.tabs(
     ["📰 Newsletter", "💼 Deal Monitor", "🔎 Article Evidence", "⚙️ Agent Trace"]
 )
@@ -214,57 +208,18 @@ with tab_newsletter:
         )
         st.markdown(newsletter_text)
 
-        st.divider()
-        st.markdown("**Export this screen**")
-        export_cols = st.columns(3)
-        with export_cols[0]:
-            st.download_button(
-                "Download Newsletter",
-                newsletter_text,
-                file_name="FMCG_Deal_Intelligence_Newsletter.md",
-                mime="text/markdown",
-                use_container_width=True,
-            )
-        with export_cols[1]:
-            st.download_button(
-                "Download Deals CSV",
-                deals_csv,
-                file_name="fmcg_deal_tracker.csv",
-                mime="text/csv",
-                use_container_width=True,
-            )
-        with export_cols[2]:
-            st.download_button(
-                "Download Articles CSV",
-                articles_csv,
-                file_name="fmcg_article_evidence.csv",
-                mime="text/csv",
-                use_container_width=True,
-            )
     else:
         st.info("Click Refresh Now to run the live public-news screen.")
 
 with tab_deals:
     if deals:
         st.dataframe(deals_df, use_container_width=True, hide_index=True)
-        st.download_button(
-            "Download Deal Tracker CSV",
-            deals_csv,
-            file_name="fmcg_deal_tracker.csv",
-            mime="text/csv",
-        )
     else:
         st.info("No confirmed deal records yet.")
 
 with tab_articles:
     if articles:
         st.dataframe(articles_df, use_container_width=True, hide_index=True)
-        st.download_button(
-            "Download Article Evidence CSV",
-            articles_csv,
-            file_name="fmcg_article_evidence.csv",
-            mime="text/csv",
-        )
     else:
         st.info("No articles yet.")
 
