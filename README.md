@@ -215,21 +215,6 @@ Shows the counts from the latest refresh:
 
 ---
 
-## Final Deliverables
-
-The submission includes:
-
-- **Live Streamlit demo:** https://fmcg-deal-agent-17082026.streamlit.app/
-- **GitHub source code:** https://github.com/PreetiShah09/fmcg-deal-intelligence-agent
-- **Raw deal data:** CSV
-- **Structured newsletter:** Excel
-- **Architecture and methodology:** this README
-- **Article evidence and pipeline trace:** available in the Streamlit application
-
-The Excel newsletter is a **point-in-time snapshot** of the intelligence screen. The live application can continue to update independently when refreshed.
-
----
-
 ## Methodology and Limitations
 
 - Public-source discovery is not guaranteed to be exhaustive.
