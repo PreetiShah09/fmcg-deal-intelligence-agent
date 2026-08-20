@@ -33,42 +33,13 @@ FMCG_NEGATIVE = {
 }
 
 
-
 _DEAL_STOPWORDS = {
-    "consumer",
-    "care",
-    "international",
-    "company",
-    "companies",
-    "group",
-    "brand",
-    "brands",
-    "inc",
-    "limited",
-    "ltd",
-    "private",
-    "pvt",
-    "the",
-    "premium",
-    "skincare",
-    "skin",
-    "personal",
-    "beauty",
-    "acquire",
-    "acquisition",
-    "acquires",
-    "acquired",
-    "buys",
-    "buy",
-    "purchase",
-    "stake",
-    "majority",
-    "minority",
-    "of",
-    "in",
-    "for",
-    "deal",
-    "transaction",
+    "consumer", "care", "international", "company", "companies",
+    "group", "brand", "brands", "inc", "limited", "ltd", "private",
+    "pvt", "the", "premium", "skincare", "skin", "personal", "beauty",
+    "acquire", "acquisition", "acquires", "acquired", "buys", "buy",
+    "purchase", "stake", "majority", "minority", "of", "in", "for",
+    "deal", "transaction"
 }
 
 
@@ -87,7 +58,6 @@ def load_state():
 
 def save_state(state):
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-
     STATE_FILE.write_text(
         json.dumps(state, ensure_ascii=False, indent=2),
         encoding="utf-8",
@@ -98,16 +68,15 @@ def fmcg_classify(title, summary):
     text = f"{title} {summary}".lower()
 
     positive_hits = sum(
-        1 for k in FMCG_POSITIVE
-        if k in text
+        1 for keyword in FMCG_POSITIVE
+        if keyword in text
     )
 
     negative_hits = sum(
-        1 for k in FMCG_NEGATIVE
-        if k in text
+        1 for keyword in FMCG_NEGATIVE
+        if keyword in text
     )
 
-    # A clear non-FMCG business category overrides generic consumer language.
     if negative_hits > 0 and positive_hits <= 2:
         return False
 
@@ -123,16 +92,6 @@ def headline_similarity(a, b):
 
 
 def _normalise_deal_entity(value):
-    """
-    Normalise buyer/target names before deal matching.
-
-    Example:
-        Wipro Consumer Care
-        Wipro
-
-    become much closer after removing generic words.
-    """
-
     text = re.sub(
         r"[^a-z0-9 ]+",
         " ",
@@ -156,19 +115,12 @@ def _normalise_deal_entity(value):
 
 
 def _entity_similarity(a, b):
-    """
-    Compare two company/brand names using both
-    token overlap and SequenceMatcher.
-    """
-
     a_tokens = _normalise_deal_entity(a)
     b_tokens = _normalise_deal_entity(b)
 
     if not a_tokens or not b_tokens:
         return 0.0
 
-    # If one meaningful entity is contained inside the other,
-    # treat it as an extremely strong match.
     if (
         a_tokens.issubset(b_tokens)
         or b_tokens.issubset(a_tokens)
@@ -203,12 +155,6 @@ def _same_deal(
     target_b,
     type_b,
 ):
-    """
-    Determine whether two extracted records represent
-    the same underlying transaction.
-    """
-
-    # Deal type must be compatible.
     if (
         type_a
         and type_b
@@ -226,15 +172,12 @@ def _same_deal(
         target_b
     )
 
-    # Strong buyer + target match.
     if (
         buyer_score >= 0.70
         and target_score >= 0.70
     ):
         return True
 
-    # Handle cases where the buyer name is abbreviated
-    # but the target is highly distinctive.
     if (
         buyer_score >= 0.90
         and target_score >= 0.85
@@ -283,7 +226,6 @@ def extract_deal_entities(title, summary, article_type):
     ]
 
     for pattern, dtype in patterns:
-
         match = re.search(
             pattern,
             title,
@@ -348,7 +290,6 @@ def extract_deal_value(text):
     ]
 
     for pattern in patterns:
-
         match = re.search(
             pattern,
             text or ""
@@ -444,6 +385,54 @@ def classify_status(title, summary):
     return "Reported"
 
 
+def _consolidate_deals(deals):
+    consolidated = []
+
+    for deal in deals:
+        match = next(
+            (
+                existing
+                for existing in consolidated
+                if _same_deal(
+                    deal.get("buyer", ""),
+                    deal.get("target", ""),
+                    deal.get("deal_type", ""),
+                    existing.get("buyer", ""),
+                    existing.get("target", ""),
+                    existing.get("deal_type", ""),
+                )
+            ),
+            None,
+        )
+
+        if match is None:
+            consolidated.append(deal)
+            continue
+
+        existing_sources = match.setdefault(
+            "sources",
+            []
+        )
+
+        for source in deal.get("sources", []) or []:
+            if source and source not in existing_sources:
+                existing_sources.append(source)
+
+        if not match.get("deal_value") and deal.get("deal_value"):
+            match["deal_value"] = deal["deal_value"]
+
+        if deal.get("status") == "Completed":
+            match["status"] = "Completed"
+
+        if len(existing_sources) >= 2:
+            match["confidence"] = "High"
+
+        if deal.get("last_updated"):
+            match["last_updated"] = deal["last_updated"]
+
+    return consolidated
+
+
 def run_pipeline(
     incoming,
     state,
@@ -465,7 +454,6 @@ def run_pipeline(
     new_articles = []
 
     for article in incoming:
-
         title = article.get(
             "title",
             ""
@@ -491,7 +479,6 @@ def run_pipeline(
     scored = []
 
     for article in new_articles:
-
         title = article.get(
             "title",
             ""
@@ -544,10 +531,6 @@ def run_pipeline(
         and a["credibility_score"] >= credibility_threshold
     ]
 
-    # ---------------------------------------------------------
-    # ARTICLE-LEVEL DEDUPLICATION
-    # ---------------------------------------------------------
-
     unique = []
     duplicates_removed = 0
 
@@ -556,7 +539,6 @@ def run_pipeline(
         key=lambda x: x["final_score"],
         reverse=True,
     ):
-
         duplicate = any(
             headline_similarity(
                 article.get("title", ""),
@@ -570,10 +552,6 @@ def run_pipeline(
         else:
             unique.append(article)
 
-    # ---------------------------------------------------------
-    # DEAL-LEVEL MATCHING
-    # ---------------------------------------------------------
-
     deals = state.get(
         "deals",
         []
@@ -584,7 +562,6 @@ def run_pipeline(
     evidence_only = 0
 
     for article in unique:
-
         entities = extract_deal_entities(
             article.get("title", ""),
             article.get("summary", ""),
@@ -617,12 +594,9 @@ def run_pipeline(
             f"{buyer} {target} {dtype}"
         )
 
-       
-
         matched = None
 
         for deal in deals:
-
             if _same_deal(
                 buyer,
                 target,
@@ -634,10 +608,7 @@ def run_pipeline(
                 matched = deal
                 break
 
-      
-
         if matched:
-
             sources = matched.setdefault(
                 "sources",
                 []
@@ -653,15 +624,12 @@ def run_pipeline(
             ):
                 sources.append(url)
 
-        
             if value:
                 matched["deal_value"] = value
 
-            # Do not downgrade completed transactions.
             if matched.get("status") != "Completed":
                 matched["status"] = status
 
-     
             if (
                 len(sources) >= 2
                 or article["credibility_score"] >= 0.90
@@ -673,16 +641,13 @@ def run_pipeline(
                 or datetime.now().isoformat()
             )
 
-            updated_deals += 1
-
-            # Attach the existing deal ID to this article.
             article["deal_id"] = matched.get(
                 "deal_id"
             )
 
+            updated_deals += 1
 
         else:
-
             confidence = (
                 "High"
                 if (
@@ -726,55 +691,10 @@ def run_pipeline(
             )
 
             article["deal_id"] = deal_id
-
             new_deals += 1
 
-  
-consolidated_deals = []
+    deals = _consolidate_deals(deals)
 
-for deal in deals:
-    match = next(
-        (
-            existing
-            for existing in consolidated_deals
-            if _same_deal(
-                deal.get("buyer", ""),
-                deal.get("target", ""),
-                deal.get("deal_type", ""),
-                existing.get("buyer", ""),
-                existing.get("target", ""),
-                existing.get("deal_type", ""),
-            )
-        ),
-        None,
-    )
-
-    if match is None:
-        consolidated_deals.append(deal)
-        continue
-
-
-    existing_sources = match.setdefault("sources", [])
-    for source in deal.get("sources", []) or []:
-        if source and source not in existing_sources:
-            existing_sources.append(source)
-
-    if not match.get("deal_value") and deal.get("deal_value"):
-        match["deal_value"] = deal["deal_value"]
-
-
-    if deal.get("status") == "Completed":
-        match["status"] = "Completed"
-
-
-    if len(existing_sources) >= 2:
-        match["confidence"] = "High"
-
-  
-    if deal.get("last_updated"):
-        match["last_updated"] = deal["last_updated"]
-
-deals = consolidated_deals
     article_map = {
         a.get("fingerprint") or a.get("url"): a
         for a in state.get("articles", [])
@@ -782,7 +702,6 @@ deals = consolidated_deals
     }
 
     for article in scored:
-
         key = (
             article.get("fingerprint")
             or article.get("url")
@@ -795,18 +714,13 @@ deals = consolidated_deals
         article_map.values()
     )
 
-
-
     total_relevant_articles = sum(
         1
         for a in stored_articles
         if a.get("fmcg_pass")
-        and a.get("relevance_score", 0)
-        >= relevance_threshold
-        and a.get("credibility_score", 0)
-        >= credibility_threshold
+        and a.get("relevance_score", 0) >= relevance_threshold
+        and a.get("credibility_score", 0) >= credibility_threshold
     )
-
 
     trace = [
         f"✓ Retrieved {len(incoming)} public articles",
