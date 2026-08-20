@@ -33,8 +33,7 @@ FMCG_NEGATIVE = {
 }
 
 
-# Generic words that are not useful for deciding whether two records
-# represent the same buyer/target.
+
 _DEAL_STOPWORDS = {
     "consumer",
     "care",
@@ -618,18 +617,7 @@ def run_pipeline(
             f"{buyer} {target} {dtype}"
         )
 
-        # -----------------------------------------------------
-        # IMPORTANT:
-        # Do NOT compare the entire fingerprint anymore.
-        #
-        # Compare buyer + target + deal type separately.
-        # This fixes cases such as:
-        #
-        # Wipro Consumer Care
-        # Wipro
-        #
-        # both referring to the same transaction.
-        # -----------------------------------------------------
+       
 
         matched = None
 
@@ -646,9 +634,7 @@ def run_pipeline(
                 matched = deal
                 break
 
-        # -----------------------------------------------------
-        # EXISTING DEAL
-        # -----------------------------------------------------
+      
 
         if matched:
 
@@ -667,7 +653,7 @@ def run_pipeline(
             ):
                 sources.append(url)
 
-            # Preserve disclosed value.
+        
             if value:
                 matched["deal_value"] = value
 
@@ -675,7 +661,7 @@ def run_pipeline(
             if matched.get("status") != "Completed":
                 matched["status"] = status
 
-            # More evidence increases confidence.
+     
             if (
                 len(sources) >= 2
                 or article["credibility_score"] >= 0.90
@@ -694,9 +680,6 @@ def run_pipeline(
                 "deal_id"
             )
 
-        # -----------------------------------------------------
-        # NEW DEAL
-        # -----------------------------------------------------
 
         else:
 
@@ -746,10 +729,52 @@ def run_pipeline(
 
             new_deals += 1
 
-    # ---------------------------------------------------------
-    # ARTICLE STATE
-    # ---------------------------------------------------------
+  
+consolidated_deals = []
 
+for deal in deals:
+    match = next(
+        (
+            existing
+            for existing in consolidated_deals
+            if _same_deal(
+                deal.get("buyer", ""),
+                deal.get("target", ""),
+                deal.get("deal_type", ""),
+                existing.get("buyer", ""),
+                existing.get("target", ""),
+                existing.get("deal_type", ""),
+            )
+        ),
+        None,
+    )
+
+    if match is None:
+        consolidated_deals.append(deal)
+        continue
+
+
+    existing_sources = match.setdefault("sources", [])
+    for source in deal.get("sources", []) or []:
+        if source and source not in existing_sources:
+            existing_sources.append(source)
+
+    if not match.get("deal_value") and deal.get("deal_value"):
+        match["deal_value"] = deal["deal_value"]
+
+
+    if deal.get("status") == "Completed":
+        match["status"] = "Completed"
+
+
+    if len(existing_sources) >= 2:
+        match["confidence"] = "High"
+
+  
+    if deal.get("last_updated"):
+        match["last_updated"] = deal["last_updated"]
+
+deals = consolidated_deals
     article_map = {
         a.get("fingerprint") or a.get("url"): a
         for a in state.get("articles", [])
@@ -770,9 +795,7 @@ def run_pipeline(
         article_map.values()
     )
 
-    # ---------------------------------------------------------
-    # CURRENT RELEVANT ARTICLE COUNT
-    # ---------------------------------------------------------
+
 
     total_relevant_articles = sum(
         1
@@ -784,9 +807,6 @@ def run_pipeline(
         >= credibility_threshold
     )
 
-    # ---------------------------------------------------------
-    # PIPELINE TRACE
-    # ---------------------------------------------------------
 
     trace = [
         f"✓ Retrieved {len(incoming)} public articles",
